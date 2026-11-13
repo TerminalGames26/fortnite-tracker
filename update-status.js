@@ -12,7 +12,7 @@ if (!FNLB_TOKEN || !WEBHOOK_URL) {
 const headers = {
   Authorization: `Bearer ${FNLB_TOKEN}`,
   'Content-Type': 'application/json',
-  'User-Agent': 'FNLB-Status-Checker/1.3'
+  'User-Agent': 'FNLB-Status-Checker/1.4'
 };
 
 async function getBots() {
@@ -37,21 +37,59 @@ async function isBotOnline(botId, accountId) {
   const url = `https://gateway.fnlb.net/v1/bots/${botId}?FNLB_BUCKET_ID=${accountId}`;
   try {
     const res = await fetch(url, { headers });
-    return res.ok; // 200 = online, anything else = offline
+    return res.ok;
   } catch {
     return false;
   }
 }
 
-function buildMessage(online, offline) {
-  let content = `**Online - ${online.length}**\n`;
-  content += online.length ? online.map(n => `• ${n}`).join('\n') : `• None`;
+function buildEmbed(online, offline) {
+  const now = new Date();
+  const timestamp = now.toISOString();
 
-  content += `\n\n**Offline - ${offline.length}**\n`;
-  content += offline.length ? offline.map(n => `• ${n}`).join('\n') : `• None`;
+  // Format: November 13, 2026 at 4:19 PM MST (example)
+  const formattedTime = now.toLocaleString('en-US', {
+    timeZone: 'America/Denver', // change if you want a different timezone
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  }) + ' MST';
 
-  content += `\n\n_Last updated: <t:${Math.floor(Date.now() / 1000)}:R>_`;
-  return content;
+  const onlineList = online.length
+    ? online.map(n => `• ${n}`).join('\n')
+    : 'None';
+
+  const offlineList = offline.length
+    ? offline.map(n => `• ${n}`).join('\n')
+    : 'None';
+
+  return {
+    embeds: [
+      {
+        title: 'FNLB Bot Status',
+        color: online.length > 0 ? 0x2ecc71 : 0x95a5a6, // green if any online, gray if all offline
+        fields: [
+          {
+            name: `Online — ${online.length}`,
+            value: onlineList,
+            inline: false
+          },
+          {
+            name: `Offline — ${offline.length}`,
+            value: offlineList,
+            inline: false
+          }
+        ],
+        footer: {
+          text: `Last checked: ${formattedTime}`
+        },
+        timestamp: timestamp
+      }
+    ]
+  };
 }
 
 async function main() {
@@ -70,24 +108,24 @@ async function main() {
 
     if (isOnline) {
       online.push(name);
-      console.log(`✓ ${name} → ONLINE`);
+      console.log(`ONLINE  → ${name}`);
     } else {
       offline.push(name);
-      console.log(`✗ ${name} → OFFLINE`);
+      console.log(`OFFLINE → ${name}`);
     }
   }
 
   online.sort();
   offline.sort();
 
-  const content = buildMessage(online, offline);
-  console.log('\n' + content);
+  const payload = buildEmbed(online, offline);
+  console.log(JSON.stringify(payload, null, 2));
 
   if (MESSAGE_ID) {
     const res = await fetch(`${WEBHOOK_URL}/messages/${MESSAGE_ID}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content })
+      body: JSON.stringify(payload)
     });
     console.log('Discord edit status:', res.status);
     if (!res.ok) console.log(await res.text());
