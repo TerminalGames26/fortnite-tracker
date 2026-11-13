@@ -2,7 +2,7 @@ const fetch = require('node-fetch');
 
 const FNLB_TOKEN = process.env.FNLB_TOKEN;
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
-const MESSAGE_ID = process.env.DISCORD_MESSAGE_ID; // leave empty on first run
+const MESSAGE_ID = process.env.DISCORD_MESSAGE_ID;
 
 if (!FNLB_TOKEN || !WEBHOOK_URL) {
   console.error('Missing FNLB_TOKEN or DISCORD_WEBHOOK_URL');
@@ -12,118 +12,118 @@ if (!FNLB_TOKEN || !WEBHOOK_URL) {
 const headers = {
   Authorization: `Bearer ${FNLB_TOKEN}`,
   'Content-Type': 'application/json',
-  'User-Agent': 'FNLB-Status-Checker/1.0'
+  'User-Agent': 'FNLB-Status-Checker/1.1'
 };
 
 async function getBots() {
   const res = await fetch('https://api.fnlb.net/v1/bots', { headers });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Failed to list bots: ${res.status} ${text}`);
-  }
-  return res.json();
+  const text = await res.text();
+  console.log('=== GET /bots status:', res.status);
+  console.log('=== GET /bots body (first 1500 chars):');
+  console.log(text.slice(0, 1500));
+  if (!res.ok) throw new Error(`Failed to list bots: ${res.status}`);
+  return JSON.parse(text);
 }
 
 async function getUser() {
   const res = await fetch('https://api.fnlb.net/v1/user', { headers });
+  const text = await res.text();
+  console.log('=== GET /user status:', res.status);
+  console.log('=== GET /user body:', text.slice(0, 500));
   if (!res.ok) throw new Error(`Failed to get user: ${res.status}`);
-  return res.json();
+  return JSON.parse(text);
 }
 
-async function isBotOnline(botId, accountId) {
-  // Gateway check – online bots exist here, offline ones return 404
-  const url = `https://gateway.fnlb.net/v1/bots/${botId}?FNLB_BUCKET_ID=${accountId}`;
-  const res = await fetch(url, { headers });
-  return res.ok;
+async function checkGateway(botId, accountId) {
+  // Try a few common patterns
+  const urls = [
+    `https://gateway.fnlb.net/v1/bots/${botId}?FNLB_BUCKET_ID=${accountId}`,
+    `https://gateway.fnlb.net/v1/bots/${botId}`,
+    `https://gateway.fnlb.net/v1/bots?FNLB_BUCKET_ID=${accountId}`
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { headers });
+      const text = await res.text();
+      console.log(`\n--- Gateway check: ${url}`);
+      console.log(`Status: ${res.status}`);
+      console.log(`Body (first 400 chars): ${text.slice(0, 400)}`);
+      if (res.ok) return true;
+    } catch (e) {
+      console.log(`Error calling ${url}:`, e.message);
+    }
+  }
+  return false;
 }
 
 function buildMessage(online, offline) {
   let content = `**Online - ${online.length}**\n`;
-  if (online.length) {
-    content += online.map(n => `• ${n}`).join('\n');
-  } else {
-    content += `• None`;
-  }
+  content += online.length ? online.map(n => `• ${n}`).join('\n') : `• None`;
 
   content += `\n\n**Offline - ${offline.length}**\n`;
-  if (offline.length) {
-    content += offline.map(n => `• ${n}`).join('\n');
-  } else {
-    content += `• None`;
-  }
+  content += offline.length ? offline.map(n => `• ${n}`).join('\n') : `• None`;
 
   content += `\n\n_Last updated: <t:${Math.floor(Date.now() / 1000)}:R>_`;
   return content;
 }
 
 async function main() {
-  console.log('Fetching bots...');
+  console.log('Fetching bots and user...');
   const [bots, user] = await Promise.all([getBots(), getUser()]);
-  const accountId = user.id;
+  const accountId = user.id || user._id || user.accountId;
+  console.log('\nAccount ID used for gateway:', accountId);
+  console.log('Number of bots returned:', bots.length);
 
-  console.log(`Found ${bots.length} bots. Checking live status...`);
+  // Log the structure of the first bot so we can see available fields
+  if (bots.length > 0) {
+    console.log('\n=== First bot object keys ===');
+    console.log(Object.keys(bots[0]));
+    console.log(JSON.stringify(bots[0], null, 2).slice(0, 800));
+  }
 
   const online = [];
   const offline = [];
 
-  // Check in parallel (with a small limit to be nice)
-  const results = await Promise.all(
-    bots.map(async (bot) => {
-      const name = bot.nickname || bot.displayName || bot.id;
-      try {
-        const onlineStatus = await isBotOnline(bot.id, accountId);
-        return { name, online: onlineStatus };
-      } catch (e) {
-        console.warn(`Error checking ${name}:`, e.message);
-        return { name, online: false };
-      }
-    })
-  );
+  for (const bot of bots) {
+    const name = bot.nickname || bot.displayName || bot.name || bot.id;
+    console.log(`\nChecking bot: ${name} (${bot.id})`);
 
-  for (const r of results) {
-    if (r.online) online.push(r.name);
-    else offline.push(r.name);
+    const isOnline = await checkGateway(bot.id, accountId);
+
+    if (isOnline) {
+      online.push(name);
+      console.log(`→ ONLINE`);
+    } else {
+      offline.push(name);
+      console.log(`→ OFFLINE`);
+    }
   }
 
-  online.sort((a, b) => a.localeCompare(b));
-  offline.sort((a, b) => a.localeCompare(b));
+  online.sort();
+  offline.sort();
 
   const content = buildMessage(online, offline);
+  console.log('\n=== Final message content ===');
   console.log(content);
 
   if (MESSAGE_ID) {
-    // Edit existing message
     const editUrl = `${WEBHOOK_URL}/messages/${MESSAGE_ID}`;
     const res = await fetch(editUrl, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content })
     });
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Failed to edit message: ${res.status} ${text}`);
-    }
-    console.log('Message updated successfully');
+    console.log('Discord edit status:', res.status);
+    if (!res.ok) console.log(await res.text());
   } else {
-    // First run – create the message and print the ID
     const res = await fetch(WEBHOOK_URL + '?wait=true', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content })
     });
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Failed to send message: ${res.status} ${text}`);
-    }
-
     const data = await res.json();
-    console.log('\n========================================');
-    console.log('FIRST RUN COMPLETE');
-    console.log('Copy this Message ID and add it as the secret DISCORD_MESSAGE_ID:');
-    console.log(data.id);
-    console.log('========================================\n');
+    console.log('Created message ID:', data.id);
   }
 }
 
