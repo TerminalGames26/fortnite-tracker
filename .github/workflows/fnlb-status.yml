@@ -2,14 +2,15 @@ name: FNLB Bot Status
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # every 5 minutes
-  workflow_dispatch:         # allow manual run
+    - cron: '*/10 * * * *'   # every 10 minutes (best effort)
+  workflow_dispatch:         # allows manual "Run workflow" button
 
 jobs:
   update-status:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -20,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: npm install node-fetch@2
 
-      - name: Update Discord status
+      - name: Run status checker
         env:
           FNLB_TOKEN: ${{ secrets.FNLB_TOKEN }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
