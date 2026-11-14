@@ -92,6 +92,39 @@ function buildEmbed(online, offline) {
   };
 }
 
+// Edits the existing message. Returns true if edited, false if the message no longer exists (404).
+async function editMessage(payload) {
+  const res = await fetch(`${WEBHOOK_URL}/messages/${MESSAGE_ID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  console.log('Discord edit status:', res.status);
+
+  if (res.ok) return true;
+  if (res.status === 404) {
+    console.log('Original message not found (deleted?). Posting a new one.');
+    return false;
+  }
+  throw new Error(`Discord edit failed (${res.status}): ${await res.text()}`);
+}
+
+// Posts a new message. ?wait=true makes Discord return the created message (with its id)
+// instead of an empty 204, so we can log the id to save as DISCORD_MESSAGE_ID.
+async function sendNewMessage(payload) {
+  const res = await fetch(`${WEBHOOK_URL}?wait=true`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    throw new Error(`Discord post failed (${res.status}): ${await res.text()}`);
+  }
+
+  const msg = await res.json();
+  console.log(`Created message ${msg.id}. Set DISCORD_MESSAGE_ID=${msg.id} to edit it on the next run.`);
+}
+
 async function main() {
   console.log('Fetching bots and user...');
   const [bots, user] = await Promise.all([getBots(), getUser()]);
@@ -121,16 +154,12 @@ async function main() {
   const payload = buildEmbed(online, offline);
   console.log(JSON.stringify(payload, null, 2));
 
+  let edited = false;
   if (MESSAGE_ID) {
-    const res = await fetch(`${WEBHOOK_URL}/messages/${MESSAGE_ID}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    console.log('Discord edit status:', res.status);
-    if (!res.ok) console.log(await res.text());
-  } else {
-    console.log('No DISCORD_MESSAGE_ID set – message not edited');
+    edited = await editMessage(payload);
+  }
+  if (!edited) {
+    await sendNewMessage(payload);
   }
 }
 
