@@ -1,9 +1,7 @@
 name: FNLB Bot Status
 
 on:
-  schedule:
-    - cron: '*/10 * * * *'   # every 10 minutes (best effort)
-  workflow_dispatch:         # allows manual "Run workflow" button
+  workflow_dispatch:         # lets the Worker (and the manual "Run workflow" button) start it
 
 jobs:
   update-status:
