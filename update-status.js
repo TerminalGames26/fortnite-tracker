@@ -69,7 +69,7 @@ function buildEmbed(online, offline) {
   return {
     embeds: [
       {
-        title: 'FNLB Bot Status',
+        title: 'Blueberry Bot Status',
         color: online.length > 0 ? 0x2ecc71 : 0x95a5a6, // green if any online, gray if all offline
         fields: [
           {
