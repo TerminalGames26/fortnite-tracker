@@ -1,4 +1,4 @@
-name: FNLB Bot Status
+name: Blueberry Bot Status
 
 on:
   workflow_dispatch:         # lets the Worker (and the manual "Run workflow" button) start it
